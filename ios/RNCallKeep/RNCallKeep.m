@@ -492,9 +492,15 @@ RCT_EXPORT_METHOD(setAudioRoute: (NSString *)uuid
 #ifdef DEBUG
     NSLog(@"[RNCallKeep][setAudioRoute] - inputName: %@", inputName);
 #endif
+    NSString *newPort = @"";
+    if([inputName isEqualToString:@"Phone"]) {
+        newPort = @"iPhone Microphone";
+    } else {
+        newPort = inputName;
+    }
     @try {
         NSError* err = nil;
-        AVAudioSession* myAudioSession = [AVAudioSession sharedInstance];
+        AVAudioSession* myAudioSession = _globalSession;
         if ([inputName isEqualToString:@"Speaker"]) {
             BOOL isOverrided = [myAudioSession overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:&err];
             if(!isOverrided){
@@ -506,7 +512,8 @@ RCT_EXPORT_METHOD(setAudioRoute: (NSString *)uuid
 
         NSArray *ports = [RNCallKeep getAudioInputs];
         for (AVAudioSessionPortDescription *port in ports) {
-            if ([port.portName isEqualToString:inputName]) {
+            NSLog(@"Printing Port:- %@ Printing inputname:- %@", port.portName, inputName);
+            if ([port.portName isEqualToString:newPort]) {
                 BOOL isSetted = [myAudioSession setPreferredInput:(AVAudioSessionPortDescription *)port error:&err];
                 if(!isSetted){
                     [NSException raise:@"setPreferredInput failed" format:@"error: %@", err];
@@ -529,7 +536,27 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     NSLog(@"[RNCallKeep][getAudioRoutes]");
 #endif
     @try {
-        NSArray *inputs = [RNCallKeep getAudioInputs];
+        NSError* err = nil;
+        NSString *str = nil;
+
+        AVAudioSession* myAudioSession = [AVAudioSession sharedInstance];
+
+        BOOL isCategorySetted = [myAudioSession setCategory:AVAudioSessionCategoryPlayAndRecord withOptions:AVAudioSessionCategoryOptionAllowBluetooth error:&err];
+        if (!isCategorySetted)
+        {
+            NSLog(@"[RNCallKeep][getAudioInputs] setCategory failed");
+            [NSException raise:@"setCategory failed" format:@"error: %@", err];
+        }
+
+        BOOL isCategoryActivated = [myAudioSession setActive:YES error:&err];
+        if (!isCategoryActivated)
+        {
+            NSLog(@"[RNCallKeep][getAudioInputs] setActive failed");
+            [NSException raise:@"setActive failed" format:@"error: %@", err];
+        }
+
+        NSArray *inputs = [myAudioSession availableInputs];
+        NSLog(@"Printing inputs:- %@ ", inputs);
         NSMutableArray *formatedInputs = [RNCallKeep formatAudioInputs: inputs];
         resolve(formatedInputs);
     }
@@ -542,14 +569,10 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
 + (NSMutableArray *) formatAudioInputs: (NSMutableArray *)inputs
 {
     NSMutableArray *newInputs = [NSMutableArray new];
-    NSString * selected = [RNCallKeep getSelectedAudioRoute];
-    
+
     NSMutableDictionary *speakerDict = [[NSMutableDictionary alloc]init];
     [speakerDict setObject:@"Speaker" forKey:@"name"];
     [speakerDict setObject:AVAudioSessionPortBuiltInSpeaker forKey:@"type"];
-    if(selected && [selected isEqualToString:AVAudioSessionPortBuiltInSpeaker]){
-        [speakerDict setObject:@YES forKey:@"selected"];
-    }
     [newInputs addObject:speakerDict];
 
     for (AVAudioSessionPortDescription* input in inputs)
@@ -560,9 +583,6 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
         NSString * type = [RNCallKeep getAudioInputType: input.portType];
         if(type)
         {
-            if([selected isEqualToString:type]){
-                [dict setObject:@YES forKey:@"selected"];
-            }
             [dict setObject:type forKey:@"type"];
             [newInputs addObject:dict];
         }
@@ -576,18 +596,12 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     NSString *str = nil;
 
     AVAudioSession* myAudioSession = [AVAudioSession sharedInstance];
-    NSString *category = [myAudioSession category];
-    NSUInteger options = [myAudioSession categoryOptions];
 
-
-    if(![category isEqualToString:AVAudioSessionCategoryPlayAndRecord] && (options != AVAudioSessionCategoryOptionAllowBluetooth) && (options !=AVAudioSessionCategoryOptionAllowBluetoothA2DP))
+    BOOL isCategorySetted = [myAudioSession setCategory:AVAudioSessionCategoryPlayAndRecord withOptions:AVAudioSessionCategoryOptionAllowBluetooth error:&err];
+    if (!isCategorySetted)
     {
-        BOOL isCategorySetted = [myAudioSession setCategory:AVAudioSessionCategoryPlayAndRecord withOptions:AVAudioSessionCategoryOptionAllowBluetooth error:&err];
-        if (!isCategorySetted)
-        {
-            NSLog(@"setCategory failed");
-            [NSException raise:@"setCategory failed" format:@"error: %@", err];
-        }
+        NSLog(@"[RNCallKeep][getAudioInputs] setCategory failed");
+        [NSException raise:@"setCategory failed" format:@"error: %@", err];
     }
 
     BOOL isCategoryActivated = [myAudioSession setActive:YES error:&err];
@@ -598,6 +612,7 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     }
 
     NSArray *inputs = [myAudioSession availableInputs];
+    NSLog(@"Printing inputs:- %@ ", inputs);
     return inputs;
 }
 
@@ -624,21 +639,6 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     else{
         return nil;
     }
-}
-
-+ (NSString *) getSelectedAudioRoute
-{
-    AVAudioSession* myAudioSession = [AVAudioSession sharedInstance];
-    AVAudioSessionRouteDescription *currentRoute = [myAudioSession currentRoute];
-    NSArray *selectedOutputs = currentRoute.outputs;
-    
-    AVAudioSessionPortDescription *selectedOutput = selectedOutputs[0];
-    
-    if(selectedOutput && [selectedOutput.portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
-        return @"Phone";
-    }
-    
-    return [RNCallKeep getAudioInputType: selectedOutput.portType];
 }
 
 - (void)requestTransaction:(CXTransaction *)transaction
@@ -893,17 +893,17 @@ RCT_EXPORT_METHOD(getAudioRoutes: (RCTPromiseResolveBlock)resolve
     NSLog(@"[RNCallKeep][configureAudioSession] Activating audio session");
 #endif
 
-    AVAudioSession* audioSession = [AVAudioSession sharedInstance];
-    [audioSession setCategory:AVAudioSessionCategoryPlayAndRecord withOptions:AVAudioSessionCategoryOptionAllowBluetooth error:nil];
+    _globalSession = [AVAudioSession sharedInstance];
+    [_globalSession setCategory:AVAudioSessionCategoryPlayAndRecord withOptions:AVAudioSessionCategoryOptionAllowBluetooth error:nil];
 
-    [audioSession setMode:AVAudioSessionModeDefault error:nil];
+    [_globalSession setMode:AVAudioSessionModeDefault error:nil];
 
     double sampleRate = 44100.0;
-    [audioSession setPreferredSampleRate:sampleRate error:nil];
+    [_globalSession setPreferredSampleRate:sampleRate error:nil];
 
     NSTimeInterval bufferDuration = .005;
-    [audioSession setPreferredIOBufferDuration:bufferDuration error:nil];
-    [audioSession setActive:TRUE error:nil];
+    [_globalSession setPreferredIOBufferDuration:bufferDuration error:nil];
+    [_globalSession setActive:TRUE error:nil];
 }
 
 + (BOOL)application:(UIApplication *)application

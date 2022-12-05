@@ -18,6 +18,7 @@
 
 @property (nonatomic, strong) CXCallController *callKeepCallController;
 @property (nonatomic, strong) CXProvider *callKeepProvider;
+@property (nonatomic, strong) AVAudioSession *globalSession;
 
 + (BOOL)application:(UIApplication *)application
             openURL:(NSURL *)url
